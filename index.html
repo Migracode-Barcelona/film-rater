@@ -1,0 +1,303 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <title>Film Rater</title>
+        <style>
+            body {
+                font-family: sans-serif;
+                max-width: 700px;
+                margin: 2rem auto;
+                padding: 0 1rem;
+            }
+            h1 {
+                font-size: 1.5rem;
+                margin-bottom: 1.5rem;
+            }
+            h2 {
+                font-size: 1.1rem;
+                margin: 1.5rem 0 0.75rem;
+            }
+            .film-card {
+                border: 1px solid #ddd;
+                border-radius: 8px;
+                padding: 14px 16px;
+                margin-bottom: 10px;
+            }
+            .film-title {
+                font-size: 1rem;
+                font-weight: 500;
+                margin-bottom: 4px;
+            }
+            .film-meta {
+                font-size: 12px;
+                color: #888;
+                margin-bottom: 8px;
+            }
+            .film-avg {
+                font-size: 13px;
+                font-weight: 500;
+                color: #333;
+            }
+            .rating-row {
+                display: flex;
+                gap: 6px;
+                margin-top: 8px;
+                flex-wrap: wrap;
+            }
+            .star-btn {
+                background: #f5f5f5;
+                border: 1px solid #ccc;
+                border-radius: 4px;
+                padding: 4px 10px;
+                cursor: pointer;
+                font-size: 13px;
+            }
+            .star-btn:hover {
+                background: #ffe;
+            }
+            .review-row {
+                margin-top: 8px;
+                display: flex;
+                gap: 6px;
+            }
+            .review-row input {
+                flex: 1;
+                padding: 5px 8px;
+                border: 1px solid #ccc;
+                border-radius: 4px;
+                font-size: 13px;
+            }
+            .review-row button {
+                padding: 5px 12px;
+                background: #1a1a1a;
+                color: white;
+                border: none;
+                border-radius: 4px;
+                cursor: pointer;
+                font-size: 13px;
+            }
+            .reviews-list {
+                margin-top: 8px;
+                font-size: 12px;
+                color: #555;
+            }
+            .reviews-list p {
+                margin: 3px 0;
+            }
+            #add-film-section {
+                background: #f9f9f9;
+                border-radius: 8px;
+                padding: 14px 16px;
+                margin-top: 1.5rem;
+            }
+            .form-row {
+                display: flex;
+                gap: 8px;
+                margin-bottom: 8px;
+                flex-wrap: wrap;
+            }
+            .form-row input,
+            .form-row select {
+                flex: 1;
+                padding: 6px 10px;
+                border: 1px solid #ccc;
+                border-radius: 4px;
+                font-size: 13px;
+            }
+            .form-row button {
+                padding: 6px 14px;
+                background: #1a1a1a;
+                color: white;
+                border: none;
+                border-radius: 4px;
+                cursor: pointer;
+                font-size: 13px;
+            }
+            #ws-status {
+                font-size: 11px;
+                color: #aaa;
+                margin-bottom: 1rem;
+            }
+            #ws-status.connected {
+                color: #2a7a2a;
+            }
+        </style>
+    </head>
+    <body>
+        <h1>🎬 Film Rater</h1>
+        <p id="ws-status">WebSocket: connecting…</p>
+
+        <div id="film-list"></div>
+
+        <div id="add-film-section">
+            <h2>Add a film</h2>
+            <div class="form-row">
+                <input id="new-title" type="text" placeholder="Title" />
+                <select id="new-genre">
+                    <option value="sci-fi">Sci-fi</option>
+                    <option value="drama">Drama</option>
+                    <option value="animation">Animation</option>
+                    <option value="comedy">Comedy</option>
+                    <option value="horror">Horror</option>
+                </select>
+                <button onclick="addFilm()">Add film</button>
+            </div>
+        </div>
+
+        <script>
+            const BACKEND_HTTP =
+                "http://zipa9v5y78zkgmdybn8u99zn.178.105.39.91.sslip.io";
+            const BACKEND_WS =
+                "ws://zipa9v5y78zkgmdybn8u99zn.178.105.39.91.sslip.io";
+
+            // ── State ────────────────────────────────────────────────────
+            let films = [];
+
+            // ── WebSocket ────────────────────────────────────────────────
+            const ws = new WebSocket(BACKEND_WS);
+            const statusEl = document.getElementById("ws-status");
+
+            ws.onopen = () => {
+                statusEl.textContent = "WebSocket: connected";
+                statusEl.classList.add("connected");
+            };
+
+            ws.onmessage = (event) => {
+                const data = JSON.parse(event.data);
+
+                if (data.type === "init") {
+                    films = data.films;
+                    renderFilms();
+                }
+
+                if (data.type === "new-film") {
+                    films.push(data.film);
+                    renderFilms();
+                }
+
+                if (data.type === "rating-update") {
+                    const film = films.find((f) => f.id === data.filmId);
+                    if (film) {
+                        film.averageRating = data.average;
+                        film.totalRatings = data.total;
+                        renderFilms();
+                    }
+                }
+
+                if (data.command === "new-review") {
+                    const film = films.find((f) => f.id === data.data.filmId);
+                    if (film) {
+                        film.reviews.push(data.data.review);
+                        renderFilms();
+                    }
+                }
+            };
+
+            ws.onclose = () => {
+                statusEl.textContent = "WebSocket: disconnected";
+                statusEl.classList.remove("connected");
+            };
+
+            // ── Render ───────────────────────────────────────────────────
+            function renderFilms() {
+                const container = document.getElementById("film-list");
+
+                if (films.length === 0) {
+                    container.innerHTML = "<p>No films yet.</p>";
+                    return;
+                }
+
+                container.innerHTML = films
+                    .map((film) => {
+                        const avgRating = film.averageRating
+                            ? film.averageRating.toFixed(1)
+                            : film.ratings.length > 0
+                              ? (
+                                    film.ratings.reduce((a, b) => a + b, 0) /
+                                    film.ratings.length
+                                ).toFixed(1)
+                              : "No ratings yet";
+
+                        const reviewsHtml = film.reviews
+                            .map(
+                                (r) =>
+                                    `<p><strong>${r.author}:</strong> ${r.text}</p>`,
+                            )
+                            .join("");
+
+                        return `
+            <div class="film-card">
+              <p class="film-title">${film.title}</p>
+              <p class="film-meta">${film.genre}</p>
+              <p class="film-avg">⭐ ${avgRating}
+                ${film.totalRatings ? `(${film.totalRatings} ratings)` : film.ratings.length > 0 ? `(${film.ratings.length} ratings)` : ""}
+              </p>
+              <div class="rating-row">
+                ${[1, 2, 3, 4, 5]
+                    .map(
+                        (n) => `
+                  <button class="star-btn" onclick="rateFilm(${film.id}, ${n})">${n}★</button>
+                `,
+                    )
+                    .join("")}
+              </div>
+              <div class="review-row">
+                <input type="text" id="review-author-${film.id}" placeholder="Your name" />
+                <input type="text" id="review-text-${film.id}"   placeholder="Write a review…" />
+                <button onclick="addReview(${film.id})">Post</button>
+              </div>
+              <div class="reviews-list">${reviewsHtml}</div>
+            </div>
+          `;
+                    })
+                    .join("");
+            }
+
+            // ── Actions ──────────────────────────────────────────────────
+            async function rateFilm(filmId, rating) {
+                await fetch(`${BACKEND_HTTP}/films/${filmId}/rate`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ rating }),
+                });
+                // no need to re-fetch — WebSocket update will trigger renderFilms()
+            }
+
+            async function addReview(filmId) {
+                const author = document
+                    .getElementById(`review-author-${filmId}`)
+                    .value.trim();
+                const text = document
+                    .getElementById(`review-text-${filmId}`)
+                    .value.trim();
+
+                if (!author || !text) return;
+
+                await fetch(`${BACKEND_HTTP}/films/${filmId}/review`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ author, text }),
+                });
+
+                document.getElementById(`review-author-${filmId}`).value = "";
+                document.getElementById(`review-text-${filmId}`).value = "";
+            }
+
+            async function addFilm() {
+                const title = document.getElementById("new-title").value.trim();
+                const genre = document.getElementById("new-genre").value;
+
+                if (!title) return;
+
+                await fetch(`${BACKEND_HTTP}/films`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ title, genre }),
+                });
+
+                document.getElementById("new-title").value = "";
+            }
+        </script>
+    </body>
+</html>
